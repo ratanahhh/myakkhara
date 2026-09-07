@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MyAkkhara — Draw & Label</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root {
+    --teal: #2E5C4E; --teal-dark: #1F3D2E; --bg: #F7F5F1; --card: #FFFFFF;
+    --border: #DDD8CF; --text: #2B2B28; --muted: #7A756B; --accent: #C9622A;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); }
+  header {
+    background: var(--teal-dark); color: white; padding: 14px 24px;
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;
+  }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  header .sub { font-size: 12px; opacity: 0.8; margin-top: 2px; }
+  .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  button {
+    background: var(--teal); color: white; border: none; padding: 8px 14px;
+    border-radius: 6px; font-size: 13px; cursor: pointer;
+  }
+  button:hover { background: #244A3E; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.secondary { background: transparent; border: 1px solid rgba(255,255,255,0.4); }
+  button.secondary:hover { background: rgba(255,255,255,0.1); }
+  button.plain { background: var(--card); color: var(--text); border: 1px solid var(--border); }
+  button.plain:hover { background: #f0eee9; }
+  .phase-toggle { display: flex; background: rgba(255,255,255,0.12); border-radius: 8px; padding: 3px; gap: 3px; }
+  .phase-toggle button { background: transparent; padding: 6px 14px; }
+  .phase-toggle button.active { background: white; color: var(--teal-dark); }
+
+  .layout { display: flex; height: calc(100vh - 64px); }
+  .canvas-pane { flex: 1; overflow: auto; padding: 20px; display: flex; justify-content: center; align-items: flex-start; }
+  .canvas-wrap { position: relative; display: inline-block; }
+  canvas { border: 1px solid var(--border); background: #fff; cursor: crosshair; }
+  .sidebar {
+    width: 320px; border-left: 1px solid var(--border); background: var(--card);
+    padding: 16px; overflow-y: auto; flex-shrink: 0;
+  }
+  .sidebar h3 { margin: 0 0 10px; font-size: 14px; color: var(--muted); font-weight: 600; }
+  .page-thumb {
+    display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 8px;
+    border: 1px solid var(--border); margin-bottom: 6px; cursor: pointer; font-size: 13px;
+  }
+  .page-thumb.active { border-color: var(--teal); background: #EEF5F1; }
+  .page-thumb img { width: 50px; border-radius: 4px; }
+  .empty-state { text-align: center; color: var(--muted); max-width: 440px; margin: 60px auto; }
+  .empty-state button { margin-top: 16px; }
+  .hint { font-size: 12px; color: var(--muted); line-height: 1.5; margin-bottom: 12px; }
+
+  /* Label phase */
+  .label-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 28px; width: min(720px, 100%); box-shadow: 0 2px 10px rgba(0,0,0,0.04); margin: auto;
+  }
+  .label-card .meta { font-size: 12px; color: var(--muted); margin-bottom: 10px; font-family: monospace; }
+  .label-card .imgwrap { background: #fafafa; border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; justify-content: center; margin-bottom: 18px; }
+  .label-card img { max-width: 100%; max-height: 220px; }
+  .label-card textarea {
+    width: 100%; font-size: 24px; padding: 12px 14px; border-radius: 8px; border: 1.5px solid var(--border);
+    font-family: 'Khmer OS', 'Khmer UI', 'Leelawadee UI', 'Noto Sans Khmer', sans-serif; resize: none; min-height: 56px; outline: none;
+  }
+  .label-card textarea:focus { border-color: var(--teal); }
+  .label-row { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; flex-wrap: wrap; gap: 10px; }
+  .progress-wrap { background: var(--border); height: 6px; border-radius: 3px; overflow: hidden; margin-top: 10px; }
+  .progress-bar { background: var(--teal); height: 100%; transition: width 0.2s; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>MyAkkhara — Draw &amp; Label</h1>
+    <div class="sub" id="headerSub">Phase 1: draw boxes around every line first, then switch to Label to type them all.</div>
+  </div>
+  <div class="controls">
+    <div class="phase-toggle">
+      <button id="drawPhaseBtn" class="active">1. Draw</button>
+      <button id="labelPhaseBtn">2. Label</button>
+    </div>
+    <button class="secondary" id="zoomOutBtn" disabled>&minus;</button>
+    <span id="zoomLabel" style="font-size:13px; min-width:40px; text-align:center;"></span>
+    <button class="secondary" id="zoomInBtn" disabled>+</button>
+    <button class="secondary" id="deleteBoxBtn" disabled>Delete Selected Box</button>
+    <button class="secondary" id="loadBtn">Load Page(s)</button>
+    <button id="exportBtn" disabled>Export ZIP</button>
+  </div>
+</header>
+
+<div class="layout">
+  <div class="canvas-pane" id="canvasPane">
+    <div class="empty-state">
+      <p><strong>Get started:</strong> click "Load Page(s)" and select one or more full page photos.</p>
+      <p class="hint">Draw a box around every line across all your pages first (fast pass, no typing). Click a box to select it: drag its edges/corners to resize, drag its middle to move it, or press Delete to remove it. Then switch to the "Label" tab to type each one, shown big and one at a time.</p>
+      <button id="loadBtn2">Load Page(s)</button>
+    </div>
+  </div>
+  <div class="sidebar" id="sidebar">
+    <h3>Pages</h3>
+    <div class="hint">Click a page to switch to it while drawing.</div>
+    <div id="pageList"></div>
+  </div>
+</div>
+
+<input type="file" id="fileInput" accept="image/*" multiple style="display:none">
+
+<script>
+const fileInput = document.getElementById('fileInput');
+const loadBtn = document.getElementById('loadBtn');
+const loadBtn2 = document.getElementById('loadBtn2');
+const exportBtn = document.getElementById('exportBtn');
+const zoomInBtn = document.getElementById('zoomInBtn');
+const zoomOutBtn = document.getElementById('zoomOutBtn');
+const zoomLabel = document.getElementById('zoomLabel');
+const canvasPane = document.getElementById('canvasPane');
+const sidebar = document.getElementById('sidebar');
+const pageList = document.getElementById('pageList');
+const drawPhaseBtn = document.getElementById('drawPhaseBtn');
+const labelPhaseBtn = document.getElementById('labelPhaseBtn');
+const headerSub = document.getElementById('headerSub');
+
+let pages = [];          // {pageId, img, boxes: [{x,y,w,h,text}]}
+let currentPageIdx = 0;
+let phase = 'draw';       // 'draw' | 'label'
+let scale = 1, fitScale = 1;
+let canvas, ctx;
+let labelQueue = [];      // flat list of {pageIdx, boxIdx}
+let labelCursor = 0;
+
+// Draw-phase interaction state
+let selectedBoxIdx = -1;
+let interactionMode = null; // null | 'new' | 'move' | 'resize'
+let dragHandle = null;
+let startX, startY, curX, curY;       // for drawing a brand new box (screen coords)
+let dragStartMouse = null;             // for moving (screen coords)
+let dragStartBoxPos = null;            // for moving (natural coords)
+let resizeAnchor = null;               // for resizing (natural coords, fixed opposite edges)
+const HANDLE_SIZE = 8;    // on-screen pixel size of resize handles
+const MIN_BOX_SIZE = 6;   // minimum box width/height in natural coords
+
+const deleteBoxBtn = document.getElementById('deleteBoxBtn');
+deleteBoxBtn.onclick = () => deleteSelectedBox();
+
+loadBtn.onclick = () => fileInput.click();
+loadBtn2.onclick = () => fileInput.click();
+
+fileInput.addEventListener('change', (e) => {
+  const files = Array.from(e.target.files);
+  if (files.length === 0) return;
+  let loaded = 0;
+  files.forEach((file) => {
+    const pageId = file.name.replace(/\.[^.]+$/, '');
+    const img = new Image();
+    img.onload = () => {
+      pages.push({ pageId, img, boxes: [] });
+      loaded++;
+      if (loaded === files.length) {
+        currentPageIdx = pages.length - files.length;
+        enterDrawPhase();
+      }
+    };
+    img.src = URL.createObjectURL(file);
+  });
+});
+
+drawPhaseBtn.onclick = () => enterDrawPhase();
+labelPhaseBtn.onclick = () => enterLabelPhase();
+zoomInBtn.onclick = () => setZoom(scale * 1.25);
+zoomOutBtn.onclick = () => setZoom(scale / 1.25);
+
+function enterDrawPhase() {
+  if (pages.length === 0) return;
+  phase = 'draw';
+  drawPhaseBtn.classList.add('active');
+  labelPhaseBtn.classList.remove('active');
+  headerSub.textContent = 'Phase 1: draw boxes around every line first, then switch to Label to type them all.';
+  sidebar.style.display = '';
+  zoomInBtn.disabled = false;
+  zoomOutBtn.disabled = false;
+  exportBtn.disabled = totalBoxCount() === 0;
+  setupDrawCanvas();
+  renderPageList();
+}
+
+function enterLabelPhase() {
+  if (pages.length === 0) return;
+  buildLabelQueue();
+  if (labelQueue.length === 0) {
+    alert("No boxes drawn yet. Go back to Draw and mark some lines first.");
+    return;
+  }
+  selectedBoxIdx = -1;
+  updateDeleteBtnState();
+  phase = 'label';
+  labelPhaseBtn.classList.add('active');
+  drawPhaseBtn.classList.remove('active');
+  headerSub.textContent = 'Phase 2: type the text for each line, one at a time.';
+  sidebar.style.display = 'none';
+  zoomInBtn.disabled = true;
+  zoomOutBtn.disabled = true;
+  labelCursor = 0;
+  renderLabelCard();
+}
+
+function totalBoxCount() {
+  return pages.reduce((sum, p) => sum + p.boxes.length, 0);
+}
+
+function buildLabelQueue() {
+  labelQueue = [];
+  pages.forEach((p, pi) => {
+    p.boxes.forEach((b, bi) => labelQueue.push({ pageIdx: pi, boxIdx: bi }));
+  });
+}
+
+/* ---------------- DRAW PHASE ---------------- */
+
+function setupDrawCanvas() {
+  const page = pages[currentPageIdx];
+  selectedBoxIdx = -1;
+  updateDeleteBtnState();
+  const maxW = Math.min(1400, canvasPane.clientWidth - 40);
+  fitScale = Math.min(1.5, maxW / page.img.naturalWidth);
+  scale = fitScale;
+  canvasPane.innerHTML = `<div class="canvas-wrap"><canvas id="pageCanvas"></canvas></div>`;
+  canvas = document.getElementById('pageCanvas');
+  ctx = canvas.getContext('2d');
+  applyCanvasSize();
+  redrawDraw();
+
+  canvas.addEventListener('mousedown', onDown);
+  canvas.addEventListener('mousemove', onMove);
+  canvas.addEventListener('mouseup', onUp);
+  canvas.addEventListener('wheel', onWheel, { passive: false });
+  updateZoomLabel();
+}
+
+function applyCanvasSize() {
+  const page = pages[currentPageIdx];
+  canvas.width = page.img.naturalWidth * scale;
+  canvas.height = page.img.naturalHeight * scale;
+}
+function updateZoomLabel() { zoomLabel.textContent = Math.round(scale * 100) + '%'; }
+function setZoom(newScale) {
+  scale = Math.max(0.2, Math.min(4, newScale));
+  applyCanvasSize();
+  updateZoomLabel();
+  redrawDraw();
+}
+function onWheel(e) {
+  if (!e.ctrlKey && !e.metaKey) return;
+  e.preventDefault();
+  setZoom(scale * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
+}
+
+function redrawDraw() {
+  const page = pages[currentPageIdx];
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(page.img, 0, 0, canvas.width, canvas.height);
+
+  page.boxes.forEach((b, i) => {
+    const isSelected = i === selectedBoxIdx;
+    ctx.strokeStyle = isSelected ? '#C9622A' : '#2E5C4E';
+    ctx.lineWidth = isSelected ? 2.5 : 2;
+    ctx.strokeRect(b.x * scale, b.y * scale, b.w * scale, b.h * scale);
+    ctx.fillStyle = isSelected ? '#C9622A' : '#2E5C4E';
+    ctx.font = '12px sans-serif';
+    ctx.fillText('line' + String(i + 1).padStart(2, '0'), b.x * scale + 4, b.y * scale + 14);
+
+    if (isSelected) {
+      getHandlePositions(b).forEach(hp => {
+        ctx.fillStyle = '#FFFFFF';
+        ctx.strokeStyle = '#C9622A';
+        ctx.lineWidth = 1.5;
+        ctx.fillRect(hp.sx - HANDLE_SIZE / 2, hp.sy - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE);
+        ctx.strokeRect(hp.sx - HANDLE_SIZE / 2, hp.sy - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE);
+      });
+    }
+  });
+
+  if (interactionMode === 'new') {
+    ctx.strokeStyle = '#C9622A';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(Math.min(startX, curX), Math.min(startY, curY), Math.abs(curX - startX), Math.abs(curY - startY));
+  }
+}
+
+function getHandlePositions(b) {
+  const sx = b.x * scale, sy = b.y * scale, sw = b.w * scale, sh = b.h * scale;
+  return [
+    { name: 'nw', sx: sx,        sy: sy },
+    { name: 'n',  sx: sx + sw/2, sy: sy },
+    { name: 'ne', sx: sx + sw,   sy: sy },
+    { name: 'e',  sx: sx + sw,   sy: sy + sh/2 },
+    { name: 'se', sx: sx + sw,   sy: sy + sh },
+    { name: 's',  sx: sx + sw/2, sy: sy + sh },
+    { name: 'sw', sx: sx,        sy: sy + sh },
+    { name: 'w',  sx: sx,        sy: sy + sh/2 },
+  ];
+}
+
+function getHandleAt(b, mx, my) {
+  const handles = getHandlePositions(b);
+  const r = HANDLE_SIZE;
+  for (const h of handles) {
+    if (Math.abs(mx - h.sx) <= r && Math.abs(my - h.sy) <= r) return h.name;
+  }
+  return null;
+}
+
+function pointInBox(b, mx, my) {
+  const sx = b.x * scale, sy = b.y * scale, sw = b.w * scale, sh = b.h * scale;
+  return mx >= sx && mx <= sx + sw && my >= sy && my <= sy + sh;
+}
+
+function cursorForHandle(handle) {
+  const map = { nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize',
+                n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize' };
+  return map[handle] || 'crosshair';
+}
+
+function updateDeleteBtnState() {
+  deleteBoxBtn.disabled = (selectedBoxIdx === -1 || phase !== 'draw');
+}
+
+function deleteSelectedBox() {
+  if (selectedBoxIdx === -1) return;
+  pages[currentPageIdx].boxes.splice(selectedBoxIdx, 1);
+  selectedBoxIdx = -1;
+  updateDeleteBtnState();
+  exportBtn.disabled = totalBoxCount() === 0;
+  renderPageList();
+  redrawDraw();
+}
+
+function onDown(e) {
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const boxes = pages[currentPageIdx].boxes;
+
+  if (selectedBoxIdx !== -1) {
+    const b = boxes[selectedBoxIdx];
+    const handle = getHandleAt(b, mx, my);
+    if (handle) {
+      interactionMode = 'resize';
+      dragHandle = handle;
+      resizeAnchor = { x: b.x, y: b.y, x2: b.x + b.w, y2: b.y + b.h };
+      return;
+    }
+    if (pointInBox(b, mx, my)) {
+      interactionMode = 'move';
+      dragStartMouse = { x: mx, y: my };
+      dragStartBoxPos = { x: b.x, y: b.y };
+      return;
+    }
+  }
+
+  for (let i = boxes.length - 1; i >= 0; i--) {
+    if (pointInBox(boxes[i], mx, my)) {
+      selectedBoxIdx = i;
+      interactionMode = 'move';
+      dragStartMouse = { x: mx, y: my };
+      dragStartBoxPos = { x: boxes[i].x, y: boxes[i].y };
+      updateDeleteBtnState();
+      redrawDraw();
+      return;
+    }
+  }
+
+  selectedBoxIdx = -1;
+  updateDeleteBtnState();
+  startX = mx; startY = my; curX = mx; curY = my;
+  interactionMode = 'new';
+  redrawDraw();
+}
+
+function onMove(e) {
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+
+  if (!interactionMode) {
+    // Hover feedback: show resize/move cursor even before clicking.
+    if (selectedBoxIdx !== -1) {
+      const b = pages[currentPageIdx].boxes[selectedBoxIdx];
+      const handle = getHandleAt(b, mx, my);
+      if (handle) { canvas.style.cursor = cursorForHandle(handle); return; }
+      if (pointInBox(b, mx, my)) { canvas.style.cursor = 'move'; return; }
+    }
+    canvas.style.cursor = 'crosshair';
+    return;
+  }
+
+  if (interactionMode === 'new') {
+    curX = mx; curY = my;
+    redrawDraw();
+    return;
+  }
+
+  const b = pages[currentPageIdx].boxes[selectedBoxIdx];
+
+  if (interactionMode === 'move') {
+    const dx = (mx - dragStartMouse.x) / scale;
+    const dy = (my - dragStartMouse.y) / scale;
+    b.x = dragStartBoxPos.x + dx;
+    b.y = dragStartBoxPos.y + dy;
+    redrawDraw();
+    return;
+  }
+
+  if (interactionMode === 'resize') {
+    const natX = mx / scale, natY = my / scale;
+    let { x, y, x2, y2 } = resizeAnchor;
+    switch (dragHandle) {
+      case 'nw': x = Math.min(natX, x2 - MIN_BOX_SIZE); y = Math.min(natY, y2 - MIN_BOX_SIZE); break;
+      case 'n':  y = Math.min(natY, y2 - MIN_BOX_SIZE); break;
+      case 'ne': x2 = Math.max(natX, x + MIN_BOX_SIZE); y = Math.min(natY, y2 - MIN_BOX_SIZE); break;
+      case 'e':  x2 = Math.max(natX, x + MIN_BOX_SIZE); break;
+      case 'se': x2 = Math.max(natX, x + MIN_BOX_SIZE); y2 = Math.max(natY, y + MIN_BOX_SIZE); break;
+      case 's':  y2 = Math.max(natY, y + MIN_BOX_SIZE); break;
+      case 'sw': x = Math.min(natX, x2 - MIN_BOX_SIZE); y2 = Math.max(natY, y + MIN_BOX_SIZE); break;
+      case 'w':  x = Math.min(natX, x2 - MIN_BOX_SIZE); break;
+    }
+    b.x = x; b.y = y; b.w = x2 - x; b.h = y2 - y;
+    redrawDraw();
+    return;
+  }
+}
+
+function onUp() {
+  if (interactionMode === 'new') {
+    const x0 = Math.min(startX, curX), y0 = Math.min(startY, curY);
+    const w = Math.abs(curX - startX), h = Math.abs(curY - startY);
+    if (w >= 8 && h >= 8) {
+      pages[currentPageIdx].boxes.push({ x: x0 / scale, y: y0 / scale, w: w / scale, h: h / scale, text: '' });
+      selectedBoxIdx = pages[currentPageIdx].boxes.length - 1;
+      exportBtn.disabled = false;
+      renderPageList();
+      updateDeleteBtnState();
+    }
+  }
+  interactionMode = null;
+  dragHandle = null;
+  redrawDraw();
+}
+
+function renderPageList() {
+  pageList.innerHTML = '';
+  pages.forEach((p, i) => {
+    const div = document.createElement('div');
+    div.className = 'page-thumb' + (i === currentPageIdx ? ' active' : '');
+    div.innerHTML = `<img src="${p.img.src}"><span>${p.pageId}<br><small>${p.boxes.length} box(es)</small></span>`;
+    div.onclick = () => { currentPageIdx = i; setupDrawCanvas(); renderPageList(); };
+    pageList.appendChild(div);
+  });
+}
+
+/* ---------------- LABEL PHASE ---------------- */
+
+function renderLabelCard() {
+  const total = labelQueue.length;
+  const labeledCount = pages.reduce((sum, p) => sum + p.boxes.filter(b => b.text.trim() !== '').length, 0);
+
+  if (labelCursor >= total) {
+    canvasPane.innerHTML = `
+      <div class="empty-state">
+        <p><strong>All boxes labeled!</strong> (${labeledCount} / ${total})</p>
+        <p class="hint">Click "Export ZIP" above to download your cropped line images + labels.csv.</p>
+      </div>`;
+    return;
+  }
+
+  const { pageIdx, boxIdx } = labelQueue[labelCursor];
+  const page = pages[pageIdx];
+  const b = page.boxes[boxIdx];
+
+  const off = document.createElement('canvas');
+  off.width = b.w; off.height = b.h;
+  off.getContext('2d').drawImage(page.img, b.x, b.y, b.w, b.h, 0, 0, b.w, b.h);
+
+  const pct = total ? Math.round((labelCursor / total) * 100) : 0;
+
+  canvasPane.innerHTML = `
+    <div class="label-card">
+      <div class="meta">${page.pageId} — box ${boxIdx + 1} &nbsp;•&nbsp; ${labelCursor + 1} of ${total}</div>
+      <div class="imgwrap"><img src="${off.toDataURL()}"></div>
+      <textarea id="labelInput" placeholder="Type what this line says, then press Enter..." dir="auto"></textarea>
+      <div class="label-row">
+        <div>
+          <button class="plain" id="prevBtn">&larr; Prev</button>
+          <button class="plain" id="skipBtn">Skip &rarr;</button>
+        </div>
+        <span class="hint">${labeledCount} / ${total} labeled</span>
+      </div>
+      <div class="progress-wrap"><div class="progress-bar" style="width:${pct}%"></div></div>
+    </div>
+  `;
+
+  const input = document.getElementById('labelInput');
+  input.value = b.text;
+  input.focus();
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      b.text = input.value.trim();
+      labelCursor++;
+      renderLabelCard();
+    }
+  });
+  document.getElementById('prevBtn').onclick = () => {
+    b.text = input.value.trim();
+    labelCursor = Math.max(0, labelCursor - 1);
+    renderLabelCard();
+  };
+  document.getElementById('skipBtn').onclick = () => { labelCursor++; renderLabelCard(); };
+}
+
+exportBtn.onclick = async () => {
+  if (totalBoxCount() === 0) { alert('No boxes drawn yet.'); return; }
+  const zip = new JSZip();
+  let csv = 'filename,label\n';
+
+  pages.forEach((page) => {
+    page.boxes.forEach((b, i) => {
+      const off = document.createElement('canvas');
+      off.width = b.w; off.height = b.h;
+      off.getContext('2d').drawImage(page.img, b.x, b.y, b.w, b.h, 0, 0, b.w, b.h);
+      const dataUrl = off.toDataURL('image/png').split(',')[1];
+      const fname = `${page.pageId}_line${String(i + 1).padStart(2, '0')}.png`;
+      zip.file(fname, dataUrl, { base64: true });
+      const escaped = '"' + (b.text || '').replace(/"/g, '""') + '"';
+      csv += `${fname},${escaped}\n`;
+    });
+  });
+  zip.file('labels.csv', csv);
+
+  const blob = await zip.generateAsync({ type: 'blob' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `myakkhara_labeled_${pages.length}pages.zip`;
+  a.click();
+};
+
+document.addEventListener('keydown', (e) => {
+  if (phase !== 'draw') return;
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'textarea' || tag === 'input') return; // don't hijack typing elsewhere
+  if ((e.key === 'Delete' || e.key === 'Backspace') && selectedBoxIdx !== -1) {
+    e.preventDefault();
+    deleteSelectedBox();
+  }
+});
+</script>
+</body>
+</html>
