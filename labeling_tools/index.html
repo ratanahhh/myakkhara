@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MyAkkhara — Draw &amp; Label</title>
+
+  <!-- Styling lives in styles.css, behavior lives in app.js.
+       Keep all three files in the same folder. -->
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+  <!-- ===================== Top bar ===================== -->
+  <header class="app-header">
+    <div>
+      <h1 class="app-title">MyAkkhara — Draw &amp; Label</h1>
+      <div class="app-subtitle" id="headerSub"></div>
+    </div>
+
+    <div class="header-controls">
+      <!-- Switch between the two phases -->
+      <div class="phase-toggle">
+        <button id="drawPhaseBtn" class="active">1. Draw</button>
+        <button id="labelPhaseBtn">2. Label</button>
+      </div>
+
+      <!-- Zoom (Draw phase only) -->
+      <button class="btn-outline" id="zoomOutBtn" disabled>&minus;</button>
+      <span class="zoom-label" id="zoomLabel"></span>
+      <button class="btn-outline" id="zoomInBtn" disabled>+</button>
+
+      <button class="btn-outline" id="deleteBoxBtn" disabled>Delete Selected Box</button>
+      <button class="btn-outline" id="loadBtn">Load Page(s)</button>
+      <button id="exportBtn" disabled>Export ZIP</button>
+    </div>
+  </header>
+
+  <!-- ===================== Main area ===================== -->
+  <div class="layout">
+
+    <!-- Draw phase: the page canvas. Label phase: one cropped line at a time.
+         app.js replaces this content depending on the phase. -->
+    <main class="canvas-pane" id="canvasPane">
+      <div class="empty-state">
+        <p><strong>Get started:</strong> click "Load Page(s)" and select one or more full page photos.</p>
+        <p class="hint">
+          Draw a box around every line across all your pages first (fast pass, no typing).
+          Click a box to select it: drag its edges/corners to resize, drag its middle to move it,
+          or press Delete to remove it. Then switch to the "Label" tab to type each one,
+          shown big and one at a time.
+        </p>
+        <button id="loadBtn2">Load Page(s)</button>
+      </div>
+    </main>
+
+    <!-- Draw phase only: list of loaded pages -->
+    <aside class="sidebar" id="sidebar">
+      <h3>Pages</h3>
+      <div class="hint">Click a page to switch to it while drawing.</div>
+      <div id="pageList"></div>
+    </aside>
+
+  </div>
+
+  <!-- Hidden file picker, opened by the "Load Page(s)" buttons -->
+  <input type="file" id="fileInput" accept="image/*" multiple hidden>
+
+  <script src="app.js"></script>
+</body>
+</html>
